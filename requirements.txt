@@ -1,0 +1,25 @@
+# YouTube Shorts Automation - Dependencies
+# All FREE libraries
+
+# Voice generation (FREE - Microsoft Edge TTS)
+edge-tts>=6.1.0
+
+# YouTube upload
+google-api-python-client>=2.100.0
+google-auth-oauthlib>=1.1.0
+google-auth-httplib2>=0.2.0
+
+# HTTP requests
+requests>=2.31.0
+
+# Environment variable loader (optional but recommended)
+python-dotenv>=1.0.0
+
+# Note: FFmpeg must be installed separately
+# Windows: choco install ffmpeg  OR  download from https://ffmpeg.org
+# Mac: brew install ffmpeg
+# Linux: sudo apt install ffmpeg
+
+# Note: Ollama must be installed separately
+# Download from https://ollama.com
+# Then run: ollama pull llama3
