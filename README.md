@@ -1,4 +1,4 @@
-# YouTube Shorts Automation System
+# Faceless YouTube Shorts Automation System
 
 A **100% FREE**, fully autonomous YouTube Shorts creation and upload system.
 Runs locally on Windows with VS Code. No paid APIs needed.
@@ -139,7 +139,11 @@ PEXELS_API_KEY = "your_key_here"
 8. Download the JSON file
 9. Rename it to `client_secret.json`
 10. Put it in the `config/` folder
-11. First upload will open a browser for Google login
+11. First upload will open a browser for Google login.
+12. **Alternative (Manual Authentication):** Run the standalone script to generate the token:
+    ```bash
+    python authenticate_youtube.py
+    ```
 
 ### Step 8: Run Setup Script
 
