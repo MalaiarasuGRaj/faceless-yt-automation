@@ -14,7 +14,7 @@ SETUP:
 
 import os
 import json
-import pickle
+# import pickle # Removed pickle, using json instead
 from pathlib import Path
 from typing import Optional
 from config.settings import YOUTUBE_CLIENT_SECRET_FILE, YOUTUBE_TOKEN_FILE, OUTPUT_DIR
@@ -45,10 +45,10 @@ def get_authenticated_service():
     # Load saved token
     if os.path.exists(YOUTUBE_TOKEN_FILE):
         try:
-            with open(YOUTUBE_TOKEN_FILE, "rb") as f:
-                creds = pickle.load(f)
-        except Exception:
-            pass
+            creds = Credentials.from_authorized_user_file(YOUTUBE_TOKEN_FILE, SCOPES)
+        except Exception as e:
+            log.warning(f"Failed to load token: {e}")
+            creds = None
 
     # If no valid token, authenticate
     if not creds or not creds.valid:
@@ -69,11 +69,12 @@ def get_authenticated_service():
             flow = InstalledAppFlow.from_client_secrets_file(
                 YOUTUBE_CLIENT_SECRET_FILE, SCOPES
             )
-            creds = flow.run_local_server(port=8090)
+            creds = flow.run_local_server(port=0)
 
         # Save token
-        with open(YOUTUBE_TOKEN_FILE, "wb") as f:
-            pickle.dump(creds, f)
+        with open(YOUTUBE_TOKEN_FILE, "w", encoding="utf-8") as f:
+            f.write(creds.to_json())
+        log.info(f"Token saved to {YOUTUBE_TOKEN_FILE}")
 
     return build("youtube", "v3", credentials=creds)
 

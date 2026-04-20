@@ -126,8 +126,12 @@ def get_all_trends(subreddits: List[str] = None) -> List[Dict]:
             seen.add(key)
             unique.append(t)
 
-    log.info(f"Found {len(unique)} unique trending topics")
-    return unique[:30]  # Top 30
+    # Get top 15 and shuffle them to ensure variety for multiple daily videos
+    top_vibrant = unique[:15]
+    random.shuffle(top_vibrant)
+    
+    log.info(f"Picked {len(top_vibrant)} unique trends with variety shuffling")
+    return top_vibrant + unique[15:30]  # Top shuffled + rest as backup
 
 
 if __name__ == "__main__":

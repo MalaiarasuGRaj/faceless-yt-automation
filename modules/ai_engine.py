@@ -66,18 +66,19 @@ KEYWORDS: {keywords}
 Generate ONE viral YouTube Shorts video idea in ENGLISH.
 
 Rules:
-- Must be SHOCKING, curious, or surprising
+- Must be SHOCKING, curious, or reveal a HIDDEN SECRET
+- Target "Relatable Everyday" mysteries (Consumer secrets, hidden tech features, grocery store tricks)
+- Target the "curiosity gap" (make them wonder what's hidden)
 - Must target young audience (18-35 age)
-- Must make people STOP scrolling
-- Must create curiosity gap
 - Under 12 words
 - Write in ENGLISH only
 
 Good examples:
-- "AI Just Replaced 10 Million Jobs And Nobody Noticed"
-- "This Psychology Trick Makes Anyone Trust You Instantly"
-- "Scientists Found Something Terrifying Under The Ocean"
-- "The Dark Secret Behind Every Billionaire Success Story"
+- "😱 The Hidden Grocery Store Secret They Don't Want You to Know"
+- "🤯 Why Your Phone Is Quietly Listening To You Right Now"
+- "😱 The Forbidden Truth About How Much CEOs Actually Make"
+- "🤯 Secret IKEA Hack That Will Save You Thousands"
+- "😱 Why You Should Never Trust A 'Free' Trial Again"
 
 Return ONLY the video idea title (one line, English). Nothing else:"""
 
@@ -95,7 +96,7 @@ Return ONLY the video idea title (one line, English). Nothing else:"""
 def generate_script(idea: str) -> str:
     """Generate a 45-55 second YouTube Shorts script in English."""
 
-    prompt = f"""You are an expert YouTube Shorts scriptwriter. Write scripts that get MILLIONS of views.
+    prompt = f"""You are an expert YouTube Shorts scriptwriter. Write scripts that get MILLIONS of views by revealing SECRETS.
 
 VIDEO IDEA: {idea}
 
@@ -104,19 +105,20 @@ That means exactly 120-150 words.
 
 VIRAL SCRIPT STRUCTURE:
 
-HOOK (0-3 sec): One shocking sentence that stops the scroll. Under 12 words.
+HOOK (0-3 sec): One shocking sentence that stops the scroll. UNDER 8 WORDS. Must scream "REVEALED" or "SECRET".
 
-CURIOSITY (4-10 sec): Create an open loop. Tease what's coming. Make them NEED to keep watching.
+CURIOSITY (4-10 sec): Create an intense open loop. Tease the "Hidden" aspect. Use words like "Nobody knows", "They hid this for years".
 
 BODY (11-35 sec): Deliver the main content in SHORT punchy sentences.
 - Each sentence 5-10 words MAX
-- Use numbers and specific facts
+- Use specific numbers, locations, and names
 - Create mini-cliffhangers between sentences
-- Build tension gradually
+- Build tension gradually toward the big reveal
 
-TWIST (36-48 sec): Reveal something unexpected. The "wait, WHAT?" moment.
+THE REVEAL/TWIST (36-48 sec): Reveal the core secret. The "wait, WHAT?" moment. This is what they stayed for.
 
-CTA (49-55 sec): End with a provocative question that forces comments.
+RETAINER/CTA (49-55 sec): End with a high-intensity "Interaction Poll" question that forced people to comment. Must be polarized (Yes/No, Agree/Disagree).
+Example: "Would you take this risk for a million dollars? Yes or No?" or "Is this a secret or a scam? Tell me in the comments!"
 
 STRICT RULES:
 - Write ONLY the spoken words
@@ -124,12 +126,12 @@ STRICT RULES:
 - NO stage directions
 - NO asterisks or formatting
 - Short punchy sentences ONLY
-- Every single sentence must add value
 - Use dramatic pauses (new sentence = pause)
 - Total: 120-150 words exactly
 - Language: ENGLISH only
 - Sound like a confident, dramatic narrator
-- Make the listener feel like they're learning a SECRET
+- Make the listener feel like they're being told something ILLEGAL or HIDDEN
+- MANDATORY: End with a question that FORCES a comment.
 
 Write the script now:"""
 
@@ -188,21 +190,23 @@ def optimize_hook(script: str) -> str:
 
 CURRENT HOOK: "{first_sentence}"
 
-Rewrite this hook to be IMPOSSIBLY viral. It must stop someone mid-scroll.
+Rewrite this hook to be IMPOSSIBLY viral. It must stop someone mid-scroll using "The Reveal" strategy.
 
 Rules:
-- Maximum 10 words
+- Maximum 6-8 words
 - Must create INSTANT curiosity
-- Must feel like a secret being revealed
-- Use power words: "shocking", "never", "secret", "just discovered", "nobody knows"
+- Must start with words like "Nobody", "Stop", "This", "Why"
+- Must feel like a forbidden secret is being revealed
+- Use power words: "shocking", "revealed", "forbidden", "hidden", "nobody knows", "illegal"
 - Language: ENGLISH only
 
 Best performing hook patterns:
-- "Nobody is talking about this [shocking thing]"
-- "This [thing] just changed everything we know"
-- "You've been lied to about [topic] your whole life"
-- "Scientists just discovered something terrifying"
-- "This is why [surprising claim]"
+- "😱 Japan's secret underground just revealed"
+- "This CEO's secret paycheck just leaked"
+- "Why nobody is allowed inside this location"
+- "The forbidden reason this company is failing"
+- "Stop believing this success lie right now"
+- "They kept this hidden for 50 years"
 
 Return ONLY the new hook. One sentence. Nothing else:"""
 
@@ -226,7 +230,7 @@ Return ONLY the new hook. One sentence. Nothing else:"""
 def generate_seo(idea: str, script: str) -> dict:
     """Generate SEO metadata. ALWAYS IN ENGLISH."""
 
-    prompt = f"""You are a YouTube SEO expert who creates viral titles.
+    prompt = f"""You are a YouTube SEO expert who creates viral "Reveal" style titles.
 
 VIDEO IDEA: {idea}
 SCRIPT PREVIEW: {script[:250]}
@@ -234,16 +238,16 @@ SCRIPT PREVIEW: {script[:250]}
 Generate SEO metadata in ENGLISH for this YouTube Shorts video.
 
 Return in this EXACT format:
-TITLE: [clickbait English title, under 55 chars, start with emoji, end with #Shorts]
-DESCRIPTION: [3 English sentences with keywords, end with hashtags]
-TAGS: [20 comma-separated English tags]
-HASHTAGS: #Shorts #Viral #Facts #Trending #MindBlown #Amazing #Education
+TITLE: [shocking English title, under 55 chars, start with 😱 or 🤯, must use words like SECRET, REVEALED, or HIDDEN, end with #Shorts]
+DESCRIPTION: [3 English sentences teasing the big secret, end with hashtags]
+TAGS: [20 comma-separated English tags focusing on the mystery]
+HASHTAGS: #Shorts #Secret #Revealed #Mystery #Hidden #SuccessShorts #Shocking
 
 Examples of PERFECT titles:
-TITLE: 😱 AI Just Stole 10 Million Jobs Overnight #Shorts
-TITLE: 🧠 This Mind Trick Controls Anyone Instantly #Shorts
-TITLE: 💰 Why Rich People Wake Up At 4AM #Shorts
-TITLE: 🔬 Scientists Found Something Terrifying #Shorts
+TITLE: 😱 Japan's Secret Underground Revealed! #Shorts
+TITLE: 🤯 The Forbidden Truth About CEO Paychecks #Shorts
+TITLE: 😱 Why Nobody Is Allowed In This City #Shorts
+TITLE: 🤯 Apple's Dark Secret Finally Exposed #Shorts
 
 Return ONLY the metadata:"""
 
@@ -302,11 +306,11 @@ Return exactly 5 search keywords for Pexels stock video website.
 Each keyword must be a VISUAL thing that can be filmed.
 
 Rules:
-- 1-3 words each
+- 2-4 words each
 - Must be something you can SEE in a video
-- Good: "robot arm", "stock market screen", "brain scan", "dark city night", "person typing"  
+- MUST include aesthetic modifiers for each keyword (e.g., "cinematic", "dark", "atmospheric", "low light", "ominous", "handheld", "dramatic")
+- Good: "dark cinematic cave", "empty atmospheric office", "abandoned city low light", "shady businessman silhouette", "mysterious vault door"
 - Bad: "innovation", "concept", "idea", "future"
-- Make keywords SPECIFIC not generic
 - Each keyword on its own line
 
 Return ONLY 5 keywords:"""

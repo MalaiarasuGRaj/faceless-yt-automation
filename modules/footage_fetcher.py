@@ -30,6 +30,11 @@ def search_pexels_videos(
         log.warning("Pexels API key not set! Get one free at https://www.pexels.com/api/")
         return []
 
+    # Boost quality by adding aesthetic modifiers if not present
+    quality_boost = " cinematic dramatic"
+    if quality_boost not in query.lower():
+        query += quality_boost
+
     url = "https://api.pexels.com/videos/search"
     headers = {"Authorization": PEXELS_API_KEY}
     params = {

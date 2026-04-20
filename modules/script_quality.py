@@ -12,11 +12,11 @@ from utils import get_logger
 log = get_logger("quality")
 
 # Ideal ranges
-MIN_WORDS = 40
-MAX_WORDS = 100
+MIN_WORDS = 90
+MAX_WORDS = 140
 MIN_SENTENCES = 3
 MAX_SENTENCES = 12
-IDEAL_HOOK_MAX_WORDS = 12
+IDEAL_HOOK_MAX_WORDS = 8
 
 
 def check_word_count(script: str) -> Tuple[bool, str]:
@@ -148,7 +148,7 @@ CURRENT SCRIPT:
 {script}
 
 Rules:
-- Keep it 60-80 words
+- Keep it 90-120 words
 - Strong hook under 10 words
 - End with an engagement question
 - No filler words

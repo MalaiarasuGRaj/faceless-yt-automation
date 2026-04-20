@@ -224,14 +224,14 @@ def build_final_video(
     # Step 3: Mix voice with background music
     final_audio = voice_path
     if bg_music_path and os.path.exists(bg_music_path):
-        mixed_audio = str(OUTPUT_DIR / "mixed_audio.mp3")
+        mixed_audio = str(OUTPUT_DIR / "mixed_audio.m4a")
         mix_cmd = [
             "ffmpeg", "-y",
             "-i", voice_path,
             "-i", bg_music_path,
             "-filter_complex",
-            f"[1:a]volume={BACKGROUND_MUSIC_VOLUME},afade=t=in:st=0:d=1,afade=t=out:st={max(0, target_duration-2)}:d=2[bg];"
-            f"[0:a]volume=1.0[voice];"
+            f"[1:a]volume={BACKGROUND_MUSIC_VOLUME},aresample=44100:async=1,aformat=channel_layouts=stereo,afade=t=in:st=0:d=1,afade=t=out:st={max(0, target_duration-2)}:d=2[bg];"
+            f"[0:a]volume=1.0,aresample=44100:async=1,aformat=channel_layouts=stereo[voice];"
             f"[voice][bg]amix=inputs=2:duration=first:dropout_transition=2[out]",
             "-map", "[out]",
             "-c:a", "aac",
@@ -245,7 +245,7 @@ def build_final_video(
                 final_audio = mixed_audio
                 log.info("Background music mixed with voiceover (with fade in/out)")
             else:
-                log.warning("Music mix failed, using voice only")
+                log.warning(f"Music mix failed: {result.stderr[:200]}")
         except Exception as e:
             log.warning(f"Music mix error: {e}")
 
@@ -268,7 +268,7 @@ def build_final_video(
         f"Outline=1,"
         f"Shadow=0,"
         f"Alignment=2,"
-        f"MarginV=120,"
+        f"MarginV=80,"
         f"MarginL=50,"
         f"MarginR=50,"
         f"FontName=Arial,"
@@ -361,7 +361,7 @@ def extract_thumbnail(video_path: str, output_filename: str = "thumbnail.jpg", t
 def cleanup_temp_files():
     """Clean up temporary files in output directory."""
     patterns = ["prep_*.mp4", "base_video.mp4", "concat_list.txt",
-                "clip_*.mp4", "subtitles.srt", "mixed_audio.mp3"]
+                "clip_*.mp4", "subtitles.srt", "mixed_audio.mp3", "mixed_audio.m4a"]
     for pattern in patterns:
         for f in OUTPUT_DIR.glob(pattern):
             try:
