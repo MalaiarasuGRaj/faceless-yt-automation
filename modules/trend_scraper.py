@@ -100,38 +100,126 @@ def fetch_google_trends_rss() -> List[Dict]:
     return topics
 
 
+def fetch_youtube_trending_topics(max_results: int = 15) -> List[Dict]:
+    """
+    Fetch YouTube's own trending videos as trend signals.
+    Uses the already-authenticated YouTube Data API (no extra quota needed).
+    Category IDs: 24=Entertainment, 28=Science&Tech, 22=People&Blogs.
+    """
+    topics = []
+    try:
+        from modules.youtube_upload import get_authenticated_service
+        youtube = get_authenticated_service()
+        if not youtube:
+            return []
+
+        category_ids = ["24", "28", "22"]  # Entertainment, Science&Tech, People&Blogs
+        seen_ids = set()
+
+        for cat_id in category_ids:
+            try:
+                response = youtube.videos().list(
+                    part="snippet,statistics",
+                    chart="mostPopular",
+                    regionCode="US",
+                    videoCategoryId=cat_id,
+                    maxResults=max_results,
+                ).execute()
+
+                for item in response.get("items", []):
+                    vid_id = item.get("id", "")
+                    if vid_id in seen_ids:
+                        continue
+                    seen_ids.add(vid_id)
+
+                    snippet = item.get("snippet", {})
+                    stats = item.get("statistics", {})
+                    topics.append({
+                        "source": "youtube_trending",
+                        "title": snippet.get("title", ""),
+                        "score": int(stats.get("viewCount", 0)) // 1000,  # Views / 1k as score
+                        "comments": int(stats.get("commentCount", 0)),
+                        "url": f"https://youtube.com/watch?v={vid_id}",
+                    })
+            except Exception as e:
+                log.warning(f"YouTube trending cat {cat_id} failed: {e}")
+
+        log.info(f"Fetched {len(topics)} YouTube trending topics")
+    except Exception as e:
+        log.warning(f"YouTube trending fetch failed: {e}")
+
+    return topics
+
+
 def get_all_trends(subreddits: List[str] = None) -> List[Dict]:
     """
-    Combine all trend sources and sort by engagement score.
+    Combine all trend sources with weighted scoring.
+    YouTube Trending gets 3× weight (most relevant signal for Shorts).
+    Reddit gets 1.5×. HackerNews gets 1×.
     """
     if subreddits is None:
-        subreddits = ["technology", "artificial", "science", "todayilearned"]
+        subreddits = ["technology", "artificial", "science", "todayilearned",
+                      "mildlyinteresting", "Damnthatsinteresting"]
 
     log.info("Fetching trends from all sources...")
 
     all_topics = []
-    all_topics.extend(fetch_reddit_trends(subreddits))
-    all_topics.extend(fetch_hackernews_trends())
-    all_topics.extend(fetch_google_trends_rss())
 
-    # Sort by engagement (score + comments)
-    all_topics.sort(key=lambda x: x.get("score", 0) + x.get("comments", 0), reverse=True)
+    # YouTube Trending — strongest signal, weight ×3
+    yt_trends = fetch_youtube_trending_topics()
+    for t in yt_trends:
+        t["weighted_score"] = (t.get("score", 0) + t.get("comments", 0)) * 3
+    all_topics.extend(yt_trends)
 
-    # Remove duplicates by title similarity
-    seen = set()
+    # Reddit — weight ×1.5
+    reddit_trends = fetch_reddit_trends(subreddits)
+    for t in reddit_trends:
+        t["weighted_score"] = (t.get("score", 0) + t.get("comments", 0)) * 1.5
+    all_topics.extend(reddit_trends)
+
+    # HackerNews — weight ×1
+    hn_trends = fetch_hackernews_trends()
+    for t in hn_trends:
+        t["weighted_score"] = t.get("score", 0) + t.get("comments", 0)
+    all_topics.extend(hn_trends)
+
+    # Google Trends — weight ×1
+    gt_trends = fetch_google_trends_rss()
+    for t in gt_trends:
+        t["weighted_score"] = t.get("score", 0)
+    all_topics.extend(gt_trends)
+
+    # Sort by weighted score
+    all_topics.sort(key=lambda x: x.get("weighted_score", 0), reverse=True)
+
+    # Deduplicate: by first 50 chars AND by leading word (prevent near-duplicates)
+    seen_keys = set()
+    seen_first_words = {}
     unique = []
     for t in all_topics:
-        key = t["title"].lower()[:50]
-        if key not in seen:
-            seen.add(key)
-            unique.append(t)
+        title = t.get("title", "")
+        key = title.lower()[:50]
+        first_word = title.lower().split()[0] if title.split() else ""
 
-    # Get top 15 and shuffle them to ensure variety for multiple daily videos
+        # Skip exact duplicates
+        if key in seen_keys:
+            continue
+
+        # Limit 2 topics per leading word to avoid near-duplicates
+        if seen_first_words.get(first_word, 0) >= 2:
+            continue
+
+        seen_keys.add(key)
+        seen_first_words[first_word] = seen_first_words.get(first_word, 0) + 1
+        unique.append(t)
+
+    # Shuffle top 15 for variety across 4 daily videos
     top_vibrant = unique[:15]
     random.shuffle(top_vibrant)
-    
-    log.info(f"Picked {len(top_vibrant)} unique trends with variety shuffling")
-    return top_vibrant + unique[15:30]  # Top shuffled + rest as backup
+
+    log.info(f"Found {len(unique)} unique trends (YouTube: {len(yt_trends)}, "
+             f"Reddit: {len(reddit_trends)}, HN: {len(hn_trends)}, GT: {len(gt_trends)})")
+    return top_vibrant + unique[15:30]
 
 
 if __name__ == "__main__":

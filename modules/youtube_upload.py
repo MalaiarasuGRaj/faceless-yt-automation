@@ -86,11 +86,19 @@ def upload_video(
     tags: list = None,
     category_id: str = "28",  # 28 = Science & Technology
     privacy: str = "public",
+    publish_at: str = None,  # ISO 8601 UTC string e.g. "2026-04-26T08:00:00Z"
     is_short: bool = True,
 ) -> Optional[str]:
     """
     Upload a video to YouTube.
-    Returns the video ID if successful.
+    
+    Args:
+        publish_at: ISO 8601 UTC timestamp to schedule publish. When provided,
+                    the video is uploaded as 'private' and YouTube auto-publishes
+                    it at the given time. Laptop does NOT need to be on at that time.
+    
+    Returns:
+        The video ID if successful, None otherwise.
     """
     from googleapiclient.http import MediaFileUpload
     from googleapiclient.errors import HttpError
@@ -120,10 +128,18 @@ def upload_video(
             "categoryId": category_id,
         },
         "status": {
-            "privacyStatus": privacy,
             "selfDeclaredMadeForKids": False,
         },
     }
+
+    # Scheduled publishing: upload as private, YouTube publishes at the given time.
+    # The laptop does NOT need to be online when the video goes live.
+    if publish_at:
+        body["status"]["privacyStatus"] = "private"
+        body["status"]["publishAt"] = publish_at
+        log.info(f"Scheduled to publish at: {publish_at} (UTC)")
+    else:
+        body["status"]["privacyStatus"] = privacy
 
     media = MediaFileUpload(
         video_path,

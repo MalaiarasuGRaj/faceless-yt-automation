@@ -92,42 +92,105 @@ BACKGROUND_MUSIC_VOLUME = 0.12  # 12% volume for bg music (slightly louder)
 
 # ============================================================
 # CONTENT NICHES (Success Shortcuts - Mystery Focus)
+# Weights are updated dynamically by analytics_engine.py
+# based on real channel performance data.
 # ============================================================
 NICHES = [
     {
+        # Real channel data (May 1-9): avg 5-85 views. Heavily saturated niche.
         "name": "AI Power Hacks",
-        "keywords": ["ChatGPT hacks", "AI automation secrets", "best AI tools 2024", "AI productivity tricks", "midjourney prompts tips", "AI video generation secrets"],
+        "weight": 0.5,
+        "keywords": ["ChatGPT secret features", "AI automation nobody uses", "hidden AI tools 2025", "AI productivity tricks pros use", "midjourney advanced secrets", "AI tools that replace jobs"],
         "subreddits": ["ChatGPT", "automation", "ArtificialInteligence", "midjourney", "tech", "futurology"],
     },
     {
+        # Real channel data: avg 0-49 views. Weak on this channel.
         "name": "Money Saving Secrets",
+        "weight": 0.8,
         "keywords": ["frugal living hacks", "money saving tips", "budgeting secrets", "save money fast", "financial freedom hacks", "hidden grocery savings"],
         "subreddits": ["Frugal", "personalfinance", "budget", "savemoney", "LifeProTips", "ConsumerReports"],
     },
     {
+        # Weak on this channel. Keep low weight.
         "name": "Easy Side Hustles",
-        "keywords": ["easy side hustles 2024", "make money online fast", "passive income ideas", "lazy side hustles", "remote work secrets", "side hustle revenue revealed"],
+        "weight": 0.5,
+        "keywords": ["easy side hustles 2025", "make money online fast", "passive income ideas", "lazy side hustles", "remote work secrets", "side hustle revenue revealed"],
         "subreddits": ["beermoney", "sidehustle", "PassiveIncome", "onlinebiz", "WorkOnline", "slatestarcodex"],
     },
     {
+        # Very weak — keep minimal presence.
         "name": "AI Wealth Generation",
+        "weight": 0.3,
         "keywords": ["how to make money with AI", "AI business ideas", "AI side hustles", "automate wealth with AI", "AI trading secrets", "generate passive income with AI"],
         "subreddits": ["ArtificialInteligence", "sidehustle", "entrepreneur", "PassiveIncome", "business", "startups"],
     },
     {
+        # Moderate performer. Real data: Elon Musk 49v, Tim Ferriss 14v, Warren Buffett 0v.
         "name": "Billionaire Money Mindset",
-        "keywords": ["billionaire mindset secrets", "wealth building habits", "financial secrets of the rich", "how to think like a billionaire", "investing tips for beginners", "habits of the top 1%"],
+        "weight": 1.2,
+        "keywords": ["billionaire habits nobody talks about", "wealth secrets of the ultra-rich", "how Elon Musk actually thinks", "what billionaires do before 6am", "hidden investing strategy of the 1%", "financial secrets from Warren Buffett"],
         "subreddits": ["finance", "investing", "entrepreneur", "success", "wealth", "business"],
+    },
+    {
+        # STAR NICHE. Real data: Angkor Wat 725v, Petra 76v, Derinkuyu 38v, Tbilisi 87v.
+        # This is 10-40x better than any other niche on this channel.
+        "name": "Hidden Places & Mysteries",
+        "weight": 5.0,  # Dominant weight — proven best performer
+        "keywords": [
+            "secret underground cities world", "hidden ancient civilizations discovered",
+            "abandoned mysterious locations earth", "forbidden zones nobody can enter",
+            "lost cities found underground", "what archaeologists found beneath ancient temples",
+            "hidden tunnels beneath famous cities", "mysterious discoveries buried for centuries",
+        ],
+        "subreddits": ["mildlyinteresting", "Damnthatsinteresting", "todayilearned", "interestingasfuck", "geography", "history", "AncientCivilizations", "archaeology"],
     },
 ]
 
 # ============================================================
+# HOOK TYPE ROTATION WEIGHTS
+# Controls which hook style the AI uses for each video.
+# Prevents formula fatigue from over-using one pattern.
+# ============================================================
+HOOK_TYPE_WEIGHTS = {
+    "negative": 0.25,      # "Stop doing X until you see this"
+    "statistical": 0.20,   # "99% of people miss this..."
+    "curiosity_gap": 0.25, # "What's hiding beneath your city?"
+    "real_news": 0.15,     # "[Real company] just did something shocking"
+    "geographic": 0.15,    # "Japan's secret underground revealed"
+}
+
+# ============================================================
 # SCHEDULING
+# All 4 videos are created at once, then uploaded to YouTube
+# as SCHEDULED posts — laptop only needs to be on during
+# the creation run. YouTube handles publishing automatically.
 # ============================================================
 VIDEOS_PER_DAY = 4
-SCHEDULE_INTERVAL_HOURS = 6  # Every 6 hours = 4 videos/day
-UPLOAD_HOUR_START = 7  # Upload window start (AM)
-UPLOAD_HOUR_END = 21  # Upload window end (PM)
+SCHEDULE_INTERVAL_HOURS = 6   # 6-hour gap between scheduled publishes
+UPLOAD_HOUR_START = 9         # First video publish at 9:00 AM (IST)
+UPLOAD_HOUR_END = 22          # Last video no later than 10:00 PM (IST)
+
+# ── Research-backed optimal publish times (IST) ──────────────────────────
+# Based on YouTube Shorts engagement data + India audience patterns:
+#
+#   9:00 AM  → Morning commuters + early risers. Low competition, algorithm
+#               test pool is fresh. Good for curiosity/mystery hooks.
+#
+#   1:00 PM  → Lunch break. HIGHEST daily traffic window for Indian audience.
+#               Peak CPM slot — advertisers are actively bidding at midday.
+#               Best video of the day should go here.
+#
+#   6:00 PM  → Evening commute. Second-largest traffic spike. Viewers are
+#               relaxed and in browse mode → higher completion rates.
+#
+#   9:00 PM  → Post-dinner prime time. Highest CPM window of the day
+#               (advertisers pay 3-5× more at night). Long watch sessions.
+#               Finance/money/tech niches earn the most at this slot.
+#
+# Why NOT 8am: Audience still waking up, lower CPM, weaker algorithm push.
+# Why NOT 11pm+: Audience drops off sharply, algorithm deprioritizes late posts.
+# ─────────────────────────────────────────────────────────────────────────
+SCHEDULED_PUBLISH_HOURS_IST = [9, 13, 17, 21]  # 9am, 1pm, 5pm, 9pm IST (4-hour gaps)
 
 # ============================================================
 # LOGGING

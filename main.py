@@ -11,13 +11,13 @@ import sys
 import time
 import random
 import json
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from config.settings import NICHES, OUTPUT_DIR, VIDEOS_PER_DAY
+from config.settings import NICHES, OUTPUT_DIR, VIDEOS_PER_DAY, SCHEDULED_PUBLISH_HOURS_IST
 from modules.trend_scraper import get_all_trends
 from modules.ai_engine import (
     generate_viral_idea,
@@ -30,7 +30,10 @@ from modules.voice_generator import generate_voice
 from modules.footage_fetcher import fetch_footage_for_keywords
 from modules.video_builder import build_final_video, extract_thumbnail, cleanup_temp_files
 from modules.youtube_upload import upload_video, set_thumbnail
-from modules.analytics_engine import record_video, refresh_all_stats, generate_ai_feedback
+from modules.analytics_engine import (
+    record_video, refresh_all_stats, generate_ai_feedback,
+    compute_niche_weights, get_winning_hooks, get_recent_titles, save_performance_snapshot,
+)
 from modules.script_quality import validate_script, improve_script
 from modules.music_manager import get_background_music
 from utils import get_logger
@@ -49,7 +52,57 @@ def clean_output_dir():
                 pass
 
 
-def create_single_video(niche: dict = None, dry_run: bool = False) -> dict:
+def pick_niche_by_weight() -> dict:
+    """
+    Pick a niche using analytics-driven weights.
+    Higher weight = picked more often. Falls back to random if weights unavailable.
+    """
+    try:
+        weights = compute_niche_weights()
+        niche_names = [n["name"] for n in NICHES]
+        niche_weights = [weights.get(n["name"], 1.0) for n in NICHES]
+        chosen = random.choices(NICHES, weights=niche_weights, k=1)[0]
+        log.info(f"Niche selected by weight: {chosen['name']} (weight={weights.get(chosen['name'], 1.0):.2f})")
+        return chosen
+    except Exception as e:
+        log.warning(f"Weighted niche selection failed ({e}), falling back to random")
+        return random.choice(NICHES)
+
+
+def get_publish_schedule(count: int) -> list:
+    """
+    Generate UTC publish timestamps for 'count' videos.
+    Uses SCHEDULED_PUBLISH_HOURS_IST from settings (e.g. [8, 13, 18, 21]).
+    
+    If the first scheduled time has already passed today, shifts to tomorrow.
+    YouTube requires publishAt to be at least 5 minutes in the future.
+    
+    Returns:
+        List of ISO 8601 UTC strings like "2026-04-27T02:30:00Z"
+    """
+    IST_OFFSET = timezone(timedelta(hours=5, minutes=30))
+    now_ist = datetime.now(IST_OFFSET)
+    
+    schedules = []
+    hours = SCHEDULED_PUBLISH_HOURS_IST[:count]  # Take only as many as needed
+    
+    for i, hour in enumerate(hours):
+        # Build target datetime in IST
+        target_ist = now_ist.replace(hour=hour, minute=0, second=0, microsecond=0)
+        
+        # If time has already passed today (or within 10 minutes), move to next day
+        if target_ist <= now_ist + timedelta(minutes=10):
+            target_ist = target_ist + timedelta(days=1)
+        
+        # Convert to UTC for the API
+        target_utc = target_ist.astimezone(timezone.utc)
+        schedules.append(target_utc.strftime("%Y-%m-%dT%H:%M:%SZ"))
+    
+    return schedules
+
+
+def create_single_video(niche: dict = None, dry_run: bool = False,
+                        publish_at: str = None, recent_titles: list = None) -> dict:
     """
     Create a single YouTube Short - full pipeline.
     
@@ -66,6 +119,7 @@ def create_single_video(niche: dict = None, dry_run: bool = False) -> dict:
         "idea": "",
         "video_path": "",
         "video_id": "",
+        "publish_at": publish_at or "immediate",
         "error": "",
     }
 
@@ -75,7 +129,7 @@ def create_single_video(niche: dict = None, dry_run: bool = False) -> dict:
 
         # ── Step 1: Pick niche ──
         if niche is None:
-            niche = random.choice(NICHES)
+            niche = pick_niche_by_weight()
         result["niche"] = niche["name"]
         log.info(f"{'='*60}")
         log.info(f"NICHE: {niche['name']}")
@@ -90,7 +144,7 @@ def create_single_video(niche: dict = None, dry_run: bool = False) -> dict:
 
         # ── Step 3: Generate viral idea ──
         log.info("Step 2/8: Generating viral idea...")
-        idea = generate_viral_idea(trends, niche)
+        idea = generate_viral_idea(trends, niche, recent_titles=recent_titles)
         if not idea:
             result["error"] = "Failed to generate idea"
             return result
@@ -111,7 +165,8 @@ def create_single_video(niche: dict = None, dry_run: bool = False) -> dict:
 
         # ── Step 5b: Quality check ──
         log.info("Step 5/9: Quality checking script...")
-        quality = validate_script(script)
+        quality = validate_script(script, title=seo.get("title", "") if 'seo' in dir() else "",
+                                  recent_titles=recent_titles)
         if not quality["approved"]:
             log.warning(f"Script quality low ({quality['score']}%), improving...")
             issues = [c["message"] for c in quality["checks"].values() if not c["pass"]]
@@ -162,12 +217,17 @@ def create_single_video(niche: dict = None, dry_run: bool = False) -> dict:
             result["success"] = True
             result["video_id"] = "DRY_RUN"
         else:
-            log.info("Uploading to YouTube...")
+            if publish_at:
+                log.info(f"Uploading as SCHEDULED (publishes at {publish_at} UTC)...")
+            else:
+                log.info("Uploading to YouTube as PUBLIC immediately...")
+
             video_id = upload_video(
                 video_path=video_path,
                 title=seo.get("title", idea),
                 description=seo.get("description", ""),
                 tags=seo.get("tags", []),
+                publish_at=publish_at,  # None = go live immediately
             )
 
             if video_id:
@@ -203,41 +263,105 @@ def create_single_video(niche: dict = None, dry_run: bool = False) -> dict:
     return result
 
 
-def run_daily_batch(count: int = None, dry_run: bool = False):
+def run_daily_batch(count: int = None, dry_run: bool = False, schedule: bool = True):
     """
-    Run a batch of video creations.
-    Rotates through niches.
+    ╔══════════════════════════════════════════════════════════════╗
+    ║  BATCH + SCHEDULE MODE                                       ║
+    ║  Creates ALL videos in one run, uploads them as SCHEDULED.   ║
+    ║  YouTube auto-publishes at the configured times.             ║
+    ║  Laptop only needs to be ON during this script run.          ║
+    ╚══════════════════════════════════════════════════════════════╝
     """
     count = count or VIDEOS_PER_DAY
-    log.info(f"Starting daily batch: {count} videos")
-    log.info(f"Dry run: {dry_run}")
+    log.info(f"{'='*60}")
+    log.info(f"BATCH MODE: {count} videos | Schedule: {schedule} | Dry run: {dry_run}")
+    log.info(f"{'='*60}")
 
+    # ── Phase 6: Auto-refresh YouTube stats before generating ideas ──
+    # This ensures the analytics feedback loop has fresh data so the AI
+    # knows which niches and hook types are winning right now.
+    log.info("Refreshing channel stats (for AI feedback loop)...")
+    try:
+        refresh_all_stats()
+        log.info("✅ Stats refreshed — AI will use latest performance data")
+    except Exception as e:
+        log.warning(f"Stats refresh skipped ({e}) — continuing with cached data")
+
+    # ── Pre-fetch shared resources for all videos ──
+    log.info("Pre-fetching trends (shared across all videos)...")
+    trends = get_all_trends()
+    if not trends:
+        log.warning("No trends found, will use niche keywords as fallback per video")
+
+    # ── Load recent titles for novelty checking ──
+    recent_titles = get_recent_titles(limit=15)
+    if recent_titles:
+        log.info(f"Loaded {len(recent_titles)} recent titles for novelty check")
+
+    # ── Generate publish schedule ──
+    if schedule and not dry_run:
+        publish_times = get_publish_schedule(count)
+        log.info(f"Scheduled publish times (UTC):")
+        for i, t in enumerate(publish_times):
+            # Display in IST for readability
+            from datetime import datetime, timezone, timedelta
+            IST = timezone(timedelta(hours=5, minutes=30))
+            utc_dt = datetime.strptime(t, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+            ist_dt = utc_dt.astimezone(IST)
+            log.info(f"  Video {i+1}: {ist_dt.strftime('%Y-%m-%d %I:%M %p IST')} ({t} UTC)")
+    else:
+        publish_times = [None] * count  # Upload immediately
+
+    # ── Create all videos ──
     results = []
     for i in range(count):
-        niche = NICHES[i % len(NICHES)]
         log.info(f"\n{'#'*60}")
         log.info(f"# VIDEO {i+1}/{count}")
         log.info(f"{'#'*60}")
 
-        result = create_single_video(niche=niche, dry_run=dry_run)
+        result = create_single_video(
+            niche=None,              # pick_niche_by_weight() is called inside
+            dry_run=dry_run,
+            publish_at=publish_times[i],
+            recent_titles=recent_titles,
+        )
         results.append(result)
 
+        # Add successful title to recent_titles so next video avoids it
+        if result["success"] and result.get("idea"):
+            recent_titles.insert(0, result.get("idea", ""))
+
         if result["success"]:
-            log.info(f"Video {i+1} SUCCESS: {result['idea']}")
+            scheduled_info = f" → publishes at {publish_times[i]}" if publish_times[i] else " → live immediately"
+            log.info(f"Video {i+1} ✅ SUCCESS: {result['idea']}{scheduled_info}")
         else:
-            log.error(f"Video {i+1} FAILED: {result['error']}")
+            log.error(f"Video {i+1} ❌ FAILED: {result['error']}")
 
-        # Wait between videos
-        if i < count - 1:
-            wait = random.randint(30, 120)
-            log.info(f"Waiting {wait}s before next video...")
-            time.sleep(wait)
-
-    # Summary
+    # ── Summary ──
     success = sum(1 for r in results if r["success"])
     log.info(f"\n{'='*60}")
-    log.info(f"BATCH COMPLETE: {success}/{count} videos created")
+    log.info(f"BATCH COMPLETE: {success}/{count} videos created & uploaded")
+
+    if schedule and not dry_run and success > 0:
+        log.info(f"\n📅 SCHEDULED VIDEOS:")
+        for i, r in enumerate(results):
+            if r["success"] and publish_times[i]:
+                from datetime import datetime, timezone, timedelta
+                IST = timezone(timedelta(hours=5, minutes=30))
+                utc_dt = datetime.strptime(publish_times[i], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+                ist_dt = utc_dt.astimezone(IST)
+                log.info(f"  ✅ {r.get('idea', 'N/A')[:50]}")
+                log.info(f"     → Auto-publishes: {ist_dt.strftime('%Y-%m-%d %I:%M %p IST')}")
+        log.info("\n💡 Laptop can be turned off now. YouTube will publish automatically.")
+
     log.info(f"{'='*60}")
+
+    # ── Save performance snapshot for future AI learning ──
+    try:
+        save_performance_snapshot()
+        log.info("Performance snapshot saved for AI optimization")
+    except Exception as e:
+        log.warning(f"Snapshot save failed: {e}")
 
     return results
 
@@ -255,13 +379,28 @@ def run_analytics_cycle():
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description="YouTube Shorts Automation")
+    parser = argparse.ArgumentParser(
+        description="YouTube Shorts Automation",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python main.py --mode batch --count 4          # Create 4 videos, schedule on YouTube
+  python main.py --mode batch --count 4 --dry-run  # Test without uploading
+  python main.py --mode batch --no-schedule      # Upload all 4 immediately (old behaviour)
+  python main.py --mode single                   # Create 1 video and upload now
+  python main.py --mode analytics                # Refresh stats + AI feedback
+"""
+    )
     parser.add_argument("--mode", choices=["single", "batch", "analytics", "test"],
                         default="single", help="Run mode")
-    parser.add_argument("--count", type=int, default=1, help="Number of videos for batch mode")
-    parser.add_argument("--dry-run", action="store_true", help="Skip YouTube upload")
+    parser.add_argument("--count", type=int, default=VIDEOS_PER_DAY,
+                        help=f"Number of videos for batch mode (default: {VIDEOS_PER_DAY})")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="Create videos but skip YouTube upload")
+    parser.add_argument("--no-schedule", action="store_true",
+                        help="Upload immediately instead of scheduling (batch mode only)")
     parser.add_argument("--niche", type=int, default=None,
-                        help="Niche index (0-4)")
+                        help=f"Niche index 0-{len(NICHES)-1} (default: auto-weighted)")
 
     args = parser.parse_args()
 
@@ -271,10 +410,17 @@ if __name__ == "__main__":
         print(json.dumps(result, indent=2, default=str))
 
     elif args.mode == "batch":
-        results = run_daily_batch(count=args.count, dry_run=args.dry_run)
+        use_schedule = not args.no_schedule
+        results = run_daily_batch(
+            count=args.count,
+            dry_run=args.dry_run,
+            schedule=use_schedule,
+        )
+        print(f"\n{'='*60}")
         for r in results:
-            status = "OK" if r["success"] else "FAIL"
-            print(f"[{status}] {r.get('niche', 'N/A')}: {r.get('idea', r.get('error', 'N/A'))}")
+            status = "✅ OK" if r["success"] else "❌ FAIL"
+            sched = f" | publishes: {r.get('publish_at', 'immediate')}" if r["success"] else ""
+            print(f"[{status}] [{r.get('niche', 'N/A')}] {r.get('idea', r.get('error', 'N/A'))}{sched}")
 
     elif args.mode == "analytics":
         run_analytics_cycle()

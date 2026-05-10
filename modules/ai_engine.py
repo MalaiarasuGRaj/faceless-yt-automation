@@ -9,11 +9,37 @@ STRATEGY: English scripts + Hindi voice = best quality + maximum reach
 import requests
 import json
 import re
+import random
+import os
 from typing import Optional
-from config.settings import OLLAMA_URL, OLLAMA_MODEL, CONTENT_LANGUAGE
+from config.settings import OLLAMA_URL, OLLAMA_MODEL, CONTENT_LANGUAGE, HOOK_TYPE_WEIGHTS
 from utils import get_logger
 
 log = get_logger("ai_engine")
+
+# Lazy import to avoid circular dependency (analytics_engine imports ai_engine)
+def _get_performance_context() -> str:
+    """Lazy-load performance context to avoid circular imports."""
+    try:
+        from modules.analytics_engine import get_performance_context
+        return get_performance_context()
+    except Exception:
+        return ""
+
+# Curated fallback title templates (used when Ollama fails)
+# Based on real channel top performers — avoids the spammy default
+SEO_FALLBACK_TEMPLATES = [
+    "{idea} — You Won't Believe This #Shorts",
+    "Stop doing this until you watch this #Shorts",
+    "The hidden truth about {idea} #Shorts",
+    "What's really hiding beneath {idea}? #Shorts",
+    "99% of people don't know this about {idea} #Shorts",
+    "They've been hiding {idea} from you #Shorts",
+    "The shocking secret behind {idea} #Shorts",
+    "Why {idea} changes everything you know #Shorts",
+    "{idea}: The truth nobody talks about #Shorts",
+    "What {idea} doesn't want you to know #Shorts",
+]
 
 
 def ask_ollama(prompt: str, max_retries: int = 3) -> str:
@@ -48,48 +74,121 @@ def ask_ollama(prompt: str, max_retries: int = 3) -> str:
     return ""
 
 
-def generate_viral_idea(trending_topics: list, niche: dict) -> str:
-    """Generate a viral YouTube Shorts idea from trending topics."""
+def generate_viral_idea(trending_topics: list, niche: dict, recent_titles: list = None) -> str:
+    """Generate a viral YouTube Shorts idea from trending topics.
+    
+    Args:
+        trending_topics: List of trending topic dicts from trend_scraper.
+        niche: Content niche config dict.
+        recent_titles: Last N uploaded video titles for novelty checking.
+                       AI is told to avoid repeating the same patterns.
+    """
+    # --- Select a hook type by weight (prevents formula fatigue) ---
+    hook_types = list(HOOK_TYPE_WEIGHTS.keys())
+    hook_weights = list(HOOK_TYPE_WEIGHTS.values())
+    chosen_hook = random.choices(hook_types, weights=hook_weights, k=1)[0]
+    log.info(f"Selected hook type: {chosen_hook}")
+
+    # --- Build hook-type-specific instructions ---
+    hook_instructions = {
+        "negative": (
+            'Use a NEGATIVE hook: Start with "Stop...", "Don\'t...", or "Never..." followed by a specific action. '
+            'Example: "Stop buying X until you see this hidden truth"'
+        ),
+        "statistical": (
+            "Use a STATISTICAL hook: Lead with a surprising specific number or percentage. "
+            'Example: "99% of people are missing this $500/month trick" or "Only 1 in 100 people know this"'
+        ),
+        "curiosity_gap": (
+            "Use a CURIOSITY GAP hook: Tease hidden knowledge without revealing it. "
+            'Example: "What\'s really hiding beneath your city?" or "The secret they\'ve kept from you for decades"'
+        ),
+        "real_news": (
+            "Use a REAL NEWS hook: Reference a real company, person, or recent event with a shocking angle. "
+            'Example: "The real reason [Company] just fired 10,000 people" or "What [CEO] does at 4AM every day"'
+        ),
+        "geographic": (
+            "Use a GEOGRAPHIC MYSTERY hook: Name a specific real place with something hidden or shocking about it. "
+            'Example: "Japan\'s secret underground city they don\'t want you to know" or "What\'s 2 miles beneath Tokyo"'
+        ),
+    }
+
+    hook_instruction = hook_instructions.get(chosen_hook, hook_instructions["curiosity_gap"])
+
+    # --- Niche-specific tone instructions (boosts specificity for top niches) ---
+    niche_tone_map = {
+        "Hidden Places & Mysteries": (
+            "You are writing for a MYSTERY DISCOVERY channel. "
+            "Focus on a SPECIFIC real location — name the country, city, depth, or distance. "
+            "The more precise the detail, the more credible and viral it becomes. "
+            "Use language that implies FORBIDDEN or HIDDEN knowledge. "
+            "Examples of the exact style needed: "
+            "'What\'s buried 18 meters beneath Istanbul\'s oldest district?', "
+            "'The cave sealed for 5,000 years just opened in Peru', "
+            "'Why China banned entry to this underground city in 2019'"
+        ),
+        "Billionaire Money Mindset": (
+            "Name one specific real billionaire. Use one specific dollar amount or statistic. "
+            "Reveal a single counterintuitive habit, decision, or secret — not generic advice. "
+            "Example: 'The $47M mistake Warren Buffett admits he still regrets'"
+        ),
+        "AI Power Hacks": (
+            "Name a specific AI tool (not just 'AI'). Give a specific use case with a measurable outcome. "
+            "Example: 'ChatGPT prompt that writes 30 days of posts in 11 minutes'"
+        ),
+    }
+    niche_tone = niche_tone_map.get(niche_name, "Be SPECIFIC: use real names, real numbers, real places.")
+
+    # --- Build novelty constraint from recent titles ---
+    novelty_block = ""
+    if recent_titles:
+        recent_sample = recent_titles[:10]
+        titles_list = "\n".join([f"  - {t}" for t in recent_sample])
+        novelty_block = f"""
+AVOID THESE PATTERNS (already used recently):
+{titles_list}
+Do NOT repeat similar topics, phrasings, or the same leading word as any title above.
+"""
 
     topics_text = "\n".join([f"- {t['title']}" for t in trending_topics[:10]])
     niche_name = niche.get("name", "Technology")
     keywords = ", ".join(niche.get("keywords", []))
 
-    prompt = f"""You are a viral YouTube Shorts content strategist.
+    # --- Load real channel performance context (self-improving loop) ---
+    perf_context = _get_performance_context()
+    perf_block = f"\n{perf_context}\n" if perf_context else ""
 
+    prompt = f"""You are a viral YouTube Shorts content strategist specializing in the '{niche_name}' niche.
+
+NICHE TONE GUIDE:
+{niche_tone}
+{perf_block}
 TRENDING TOPICS RIGHT NOW:
 {topics_text}
 
 YOUR NICHE: {niche_name}
 KEYWORDS: {keywords}
+{novelty_block}
+YOUR ASSIGNED HOOK STRATEGY: {hook_instruction}
 
 Generate ONE viral YouTube Shorts video idea in ENGLISH.
 
 Rules:
-- Must be SHOCKING, curious, or reveal a HIDDEN SECRET
-- Target "Relatable Everyday" mysteries (Consumer secrets, hidden tech features, grocery store tricks)
-- Target the "curiosity gap" (make them wonder what's hidden)
-- Must target young audience (18-35 age)
 - Under 12 words
+- MUST follow the assigned hook strategy above
+- MUST follow the Niche Tone Guide above — be extremely specific
+- NO emojis in the idea itself
 - Write in ENGLISH only
 
-Good examples:
-- "😱 The Hidden Grocery Store Secret They Don't Want You to Know"
-- "🤯 Why Your Phone Is Quietly Listening To You Right Now"
-- "😱 The Forbidden Truth About How Much CEOs Actually Make"
-- "🤯 Secret IKEA Hack That Will Save You Thousands"
-- "😱 Why You Should Never Trust A 'Free' Trial Again"
-
-Return ONLY the video idea title (one line, English). Nothing else:"""
+Return ONLY the video idea title (one line). Nothing else:"""
 
     idea = ask_ollama(prompt)
     idea = idea.strip().strip('"').strip("'").strip("*").strip("#")
     lines = idea.split("\n")
     idea = lines[0].strip() if lines else idea
-    # Remove any numbering
     idea = re.sub(r'^\d+[\.\)]\s*', '', idea)
 
-    log.info(f"Generated idea: {idea}")
+    log.info(f"Generated idea [{chosen_hook}]: {idea}")
     return idea
 
 
@@ -105,33 +204,38 @@ That means exactly 120-150 words.
 
 VIRAL SCRIPT STRUCTURE:
 
-HOOK (0-3 sec): One shocking sentence that stops the scroll. UNDER 8 WORDS. Must scream "REVEALED" or "SECRET".
+HOOK (0-3 sec): One shocking sentence that stops the scroll. UNDER 8 WORDS.
+Strategy: Use a 'Pattern Interrupt' (e.g., "Stop doing this", "99% of people miss this", "This changes everything"). DO NOT just use "REVEALED".
 
-CURIOSITY (4-10 sec): Create an intense open loop. Tease the "Hidden" aspect. Use words like "Nobody knows", "They hid this for years".
+CURIOSITY (4-10 sec): Create an intense open loop. Tease the "Hidden" aspect. Use words like "Nobody knows", "They hid this for years", "Governments erased this".
 
 BODY (11-35 sec): Deliver the main content in SHORT punchy sentences.
 - Each sentence 5-10 words MAX
-- Use specific numbers, locations, and names
+- Use specific numbers, locations, real names, and dates
 - Create mini-cliffhangers between sentences
 - Build tension gradually toward the big reveal
 
 THE REVEAL/TWIST (36-48 sec): Reveal the core secret. The "wait, WHAT?" moment. This is what they stayed for.
 
-RETAINER/CTA (49-55 sec): End with a high-intensity "Interaction Poll" question that forced people to comment. Must be polarized (Yes/No, Agree/Disagree).
-Example: "Would you take this risk for a million dollars? Yes or No?" or "Is this a secret or a scam? Tell me in the comments!"
+RETENTION LOOP (last sentence): CRITICAL — the final sentence MUST echo the exact words or theme of the HOOK (first sentence).
+This creates a seamless replay loop, boosting your watch time score.
+Example — Hook: "This underground city changes everything."
+Example — Last line: "...and that is exactly why this underground city... changes everything."
+
+CTA (final): Before the loop sentence, ask one POLARIZED engagement question.
+Must force a binary choice: Yes or No, Agree or Disagree, Genius or Scam.
+Example: "Would you dare to enter this city? Yes or No?"
 
 STRICT RULES:
 - Write ONLY the spoken words
 - NO labels (no "HOOK:", "BODY:", etc.)
-- NO stage directions
-- NO asterisks or formatting
-- Short punchy sentences ONLY
+- NO stage directions, NO asterisks, NO formatting
+- Short punchy sentences ONLY (5-10 words each)
 - Use dramatic pauses (new sentence = pause)
 - Total: 120-150 words exactly
 - Language: ENGLISH only
-- Sound like a confident, dramatic narrator
-- Make the listener feel like they're being told something ILLEGAL or HIDDEN
-- MANDATORY: End with a question that FORCES a comment.
+- Sound like a confident, dramatic documentary narrator
+- MANDATORY: End with the RETENTION LOOP sentence that echoes the hook
 
 Write the script now:"""
 
@@ -194,19 +298,21 @@ Rewrite this hook to be IMPOSSIBLY viral. It must stop someone mid-scroll using 
 
 Rules:
 - Maximum 6-8 words
-- Must create INSTANT curiosity
-- Must start with words like "Nobody", "Stop", "This", "Why"
-- Must feel like a forbidden secret is being revealed
-- Use power words: "shocking", "revealed", "forbidden", "hidden", "nobody knows", "illegal"
+- Must stop the scroll with a "Pattern Interrupt".
+- Strategies: 
+  1. Negative ("Stop...", "Don't...", "You're failing...")
+  2. Statistical ("90% missed...", "1 in 100 know...")
+  3. Relatable Mystery ("Why your X does Y...")
+- Avoid overusing "😱" or "Revealed".
 - Language: ENGLISH only
 
 Best performing hook patterns:
-- "😱 Japan's secret underground just revealed"
-- "This CEO's secret paycheck just leaked"
-- "Why nobody is allowed inside this location"
-- "The forbidden reason this company is failing"
-- "Stop believing this success lie right now"
-- "They kept this hidden for 50 years"
+- "Stop buying coffee until you see this"
+- "99% of people use this wrong"
+- "Why your phone is actually listening"
+- "The hidden reason you aren't successful"
+- "This CEO's secret just leaked"
+- "1 simple trick to save thousands"
 
 Return ONLY the new hook. One sentence. Nothing else:"""
 
@@ -230,32 +336,40 @@ Return ONLY the new hook. One sentence. Nothing else:"""
 def generate_seo(idea: str, script: str) -> dict:
     """Generate SEO metadata. ALWAYS IN ENGLISH."""
 
-    prompt = f"""You are a YouTube SEO expert who creates viral "Reveal" style titles.
+    prompt = f"""You are a YouTube SEO expert who creates viral titles that stop the scroll.
 
 VIDEO IDEA: {idea}
 SCRIPT PREVIEW: {script[:250]}
 
 Generate SEO metadata in ENGLISH for this YouTube Shorts video.
 
-Return in this EXACT format:
-TITLE: [shocking English title, under 55 chars, start with 😱 or 🤯, must use words like SECRET, REVEALED, or HIDDEN, end with #Shorts]
-DESCRIPTION: [3 English sentences teasing the big secret, end with hashtags]
-TAGS: [20 comma-separated English tags focusing on the mystery]
-HASHTAGS: #Shorts #Secret #Revealed #Mystery #Hidden #SuccessShorts #Shocking
+Title rules:
+- Under 55 chars, max 1 emoji, must end with #Shorts
+- Use ONE of these proven patterns:
+  * Negative: "Stop [doing X] until you see this [result]"
+  * Statistical: "[X%] of people are [doing Y wrong]"
+  * Curiosity: "What's really hiding [specific place/thing]?"
+  * Real news: "[Real entity] just [shocking action]"
+  * Geographic: "[Real place]\'s secret [thing] revealed"
+- NO generic title — be SPECIFIC with names/numbers/places
 
-Examples of PERFECT titles:
-TITLE: 😱 Japan's Secret Underground Revealed! #Shorts
-TITLE: 🤯 The Forbidden Truth About CEO Paychecks #Shorts
-TITLE: 😱 Why Nobody Is Allowed In This City #Shorts
-TITLE: 🤯 Apple's Dark Secret Finally Exposed #Shorts
+Return in this EXACT format:
+TITLE: [clean English title, under 55 chars, max 1 emoji, end with #Shorts]
+DESCRIPTION: [3 English sentences teasing the benefit/secret, end with hashtags]
+TAGS: [20 comma-separated English tags]
+HASHTAGS: #Shorts #SuccessTips #GrowthMindset #Efficiency #LifeHacks #Shorts
 
 Return ONLY the metadata:"""
 
     response = ask_ollama(prompt)
 
+    # --- Curated fallback: never use the spammy "😱 {idea} #Shorts" default ---
+    fallback_template = random.choice(SEO_FALLBACK_TEMPLATES)
+    fallback_title = fallback_template.format(idea=idea[:30])[:100]
+
     seo = {
-        "title": f"😱 {idea} #Shorts",
-        "description": f"{idea}. Watch this incredible short! #Shorts #Viral #Facts",
+        "title": fallback_title,
+        "description": f"{idea}. Watch this to find out what they don't want you to know! #Shorts #Viral #Facts",
         "tags": ["shorts", "viral", "facts", "trending", "amazing", "mind blown",
                  "education", "science", "technology", "motivation"],
         "hashtags": ["#Shorts", "#Viral", "#Facts", "#Trending", "#Amazing"],
@@ -264,10 +378,10 @@ Return ONLY the metadata:"""
     for line in response.split("\n"):
         line = line.strip()
         if line.upper().startswith("TITLE:"):
-            title = line.split(":", 1)[1].strip()[:100]
+            title = line.split(":", 1)[1].strip()[:90]  # 90 chars max to prevent truncated titles
             # Strip any Devanagari characters
             clean = "".join(c for c in title if not ('\u0900' <= c <= '\u097F'))
-            if clean.strip():
+            if clean.strip() and len(clean.strip()) > 10:
                 seo["title"] = clean.strip()
         elif line.upper().startswith("DESCRIPTION:"):
             desc = line.split(":", 1)[1].strip()

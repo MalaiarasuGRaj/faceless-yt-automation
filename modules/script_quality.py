@@ -49,16 +49,26 @@ def check_hook_strength(script: str) -> Tuple[bool, str]:
 
 
 def check_has_question(script: str) -> Tuple[bool, str]:
-    """Check if script ends with a question (for engagement/loop)."""
-    last_sentence = script.strip().split(".")[-1].strip()
-    if not last_sentence:
-        sentences = script.strip().split(".")
-        last_sentence = sentences[-2].strip() if len(sentences) > 1 else ""
+    """Check if script ends with a polarized engagement question (Yes/No style).
+    Polarized questions (e.g. 'Would you enter? Yes or No?') drive 3-5x more comments
+    than open-ended questions because they require zero creative effort to answer.
+    """
+    has_question = "?" in script[-120:]  # Check last 120 chars
+    if not has_question:
+        return False, "Missing engagement question at the end"
 
-    has_question = "?" in script[-100:]  # Check last 100 chars
-    if has_question:
-        return True, "Ends with engagement question"
-    return False, "Missing engagement question at the end"
+    # Check if it's a POLARIZED (binary-choice) question — the high-engagement kind
+    last_120 = script[-120:].lower()
+    polarized_signals = [
+        "yes or no", "agree or disagree", "would you", "could you",
+        "genius or", "scam or", "right or wrong", "true or false",
+        "real or fake", "believe it or not", "dare to", "worth it or not",
+    ]
+    is_polarized = any(p in last_120 for p in polarized_signals)
+
+    if is_polarized:
+        return True, "Strong polarized CTA ✓ (forces binary comment)"
+    return True, "Has question but not polarized — upgrade to Yes/No format for more comments"
 
 
 def check_no_filler(script: str) -> Tuple[bool, str]:
@@ -76,17 +86,102 @@ def check_no_filler(script: str) -> Tuple[bool, str]:
     return True, "No filler words"
 
 
-def validate_script(script: str) -> dict:
+def check_hook_variety(title: str, recent_titles: list) -> Tuple[bool, str]:
+    """
+    Check if the hook pattern is too similar to recently used ones.
+    Fails if the same leading word/pattern appears in 3+ of the last 10 titles.
+    This prevents the channel from producing repetitive "😱 ... Revealed" spam.
+    """
+    if not recent_titles or not title:
+        return True, "No recent titles to compare"
+
+    recent_sample = recent_titles[:10]
+    title_first_word = title.lower().split()[0].strip("!❤😱🤯😞🚨🚀") if title.split() else ""
+
+    matching = 0
+    for rt in recent_sample:
+        rt_first = rt.lower().split()[0].strip("!❤😱🤯😞🚨🚀") if rt.split() else ""
+        if rt_first == title_first_word and title_first_word:
+            matching += 1
+
+    if matching >= 3:
+        return False, f"Hook pattern '{title_first_word}' repeated in {matching}/10 recent videos"
+    return True, f"Hook is fresh ('{title_first_word}' used {matching} times recently)"
+
+
+def check_retention_loop(script: str) -> Tuple[bool, str]:
+    """
+    Check if the script's ending echoes its beginning (creates a seamless replay loop).
+    When the last sentence references the first, YouTube counts replays as continued
+    watch time, which boosts the algorithm ranking significantly.
+    """
+    sentences = [s.strip() for s in re.split(r'[.!?]', script) if s.strip() and len(s.strip()) > 5]
+    if len(sentences) < 3:
+        return False, "Too few sentences to evaluate retention loop"
+
+    # Get key words from the first sentence (exclude stop words)
+    stop_words = {"the", "a", "an", "is", "in", "and", "this", "that", "it",
+                  "to", "of", "for", "on", "are", "was", "with", "you", "your"}
+    first_words = set(sentences[0].lower().split()) - stop_words
+    last_words = set(sentences[-1].lower().split()) - stop_words
+
+    overlap = first_words & last_words
+    if len(overlap) >= 2:
+        return True, f"Retention loop detected ✓ (shared: {', '.join(list(overlap)[:3])})"
+    elif len(overlap) == 1:
+        return True, f"Weak retention loop (only 1 shared word: {list(overlap)[0]}) — add more echo"
+    return False, "No retention loop — last sentence doesn't echo the hook (missed watch time boost)"
+
+
+def check_specificity(script: str) -> Tuple[bool, str]:
+    """
+    Check if the script contains at least one specific element:
+    a proper noun (capitalized word), a number, or a named place.
+    Specific scripts have proven higher CTR than vague ones.
+    """
+    # Check for numbers (including $ amounts, percentages)
+    has_number = bool(re.search(r'\b\d+[%kKmMbB]?\b|\$\d+', script))
+
+    # Check for capitalized proper nouns (words not at start of sentence that are capitalized)
+    words = script.split()
+    proper_nouns = []
+    for i, word in enumerate(words):
+        clean = re.sub(r'[^a-zA-Z]', '', word)
+        if i > 0 and clean and clean[0].isupper() and len(clean) > 2:
+            proper_nouns.append(clean)
+
+    has_proper_noun = len(proper_nouns) > 0
+
+    if has_number or has_proper_noun:
+        detail = f"numbers: {has_number}, proper nouns: {proper_nouns[:3]}"
+        return True, f"Script is specific ({detail})"
+
+    return False, "Script lacks specifics (no numbers or proper nouns) — add names/numbers"
+
+
+def validate_script(script: str, title: str = "", recent_titles: list = None) -> dict:
     """
     Run all quality checks on a script.
     Returns dict with overall score and details.
+
+    Args:
+        script: The spoken script text.
+        title: The video title (used for hook variety check).
+        recent_titles: Last N uploaded titles (used for variety check).
     """
     checks = {
         "word_count": check_word_count(script),
         "hook_strength": check_hook_strength(script),
         "engagement_question": check_has_question(script),
         "no_filler": check_no_filler(script),
+        "specificity": check_specificity(script),
+        "retention_loop": check_retention_loop(script),  # Phase 4: new check
     }
+
+    # Hook variety is a warning-only check (doesn't reduce score)
+    if title and recent_titles:
+        variety_ok, variety_msg = check_hook_variety(title, recent_titles)
+        checks["hook_variety"] = (variety_ok, variety_msg)
 
     passed = sum(1 for ok, _ in checks.values() if ok)
     total = len(checks)
